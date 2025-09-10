@@ -18,7 +18,7 @@ fn stopwords() -> HashSet<&'static str> {
     .collect()
 }
 
-/// Tokenize text into words
+/// Tokenize text into words (lowercased, alphanumeric only)
 fn tokenize(text: &str) -> Vec<String> {
     text.split_whitespace()
         .map(|w| w.trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase())
@@ -26,44 +26,42 @@ fn tokenize(text: &str) -> Vec<String> {
         .collect()
 }
 
-/// Generate n-grams from tokens
+/// Generate n-grams (functional, no imperative loops)
 fn generate_ngrams(tokens: &[String], n: usize) -> Vec<String> {
     if n == 1 {
         return tokens.to_vec();
     }
-    let mut ngrams = Vec::new();
-    for i in 0..tokens.len().saturating_sub(n - 1) {
-        ngrams.push(tokens[i..i + n].join(" "));
-    }
-    ngrams
+    (0..tokens.len().saturating_sub(n - 1))
+        .map(|i| tokens[i..i + n].join(" "))
+        .collect()
 }
 
-/// Count frequencies
+/// Count frequencies (functional fold)
 fn count_frequencies(words: &[String]) -> HashMap<String, usize> {
-    let mut freq = HashMap::new();
-    for word in words {
-        *freq.entry(word.clone()).or_insert(0) += 1;
-    }
-    freq
+    words.iter().fold(HashMap::new(), |mut acc, w| {
+        *acc.entry(w.clone()).or_insert(0) += 1;
+        acc
+    })
 }
 
 /// Display bar chart for frequencies
 fn display_bar_chart(items: &[(String, usize)], max_bar: usize) {
-    if items.is_empty() {
-        return;
-    }
-    let max_count = items[0].1 as f64;
-    for (word, count) in items {
-        let bar_len = (( *count as f64 / max_count) * max_bar as f64).round() as usize;
-        let bar = "█".repeat(bar_len);
-        println!("{:<20} {:>5} {}", word.bold(), count, bar.blue());
+    if let Some(max_count) = items.first().map(|(_, c)| *c as f64) {
+        items.iter().for_each(|(word, count)| {
+            let bar_len = ((*count as f64 / max_count) * max_bar as f64).round() as usize;
+            let bar = "█".repeat(bar_len);
+            println!("{:<20} {:>5} {}", word.bold(), count, bar.blue());
+        });
     }
 }
 
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
-        eprintln!("Usage: {} <file-path> [--top=N] [--match-regex=PATTERN] [--ngrams=N] [--filter-stopwords]", args[0]);
+        eprintln!(
+            "Usage: {} <file-path> [--top=N] [--match-regex=PATTERN] [--ngrams=N] [--filter-stopwords] [--min-length=N] [--starts-with=C]",
+            args[0]
+        );
         process::exit(1);
     }
 
@@ -72,25 +70,25 @@ fn main() {
     let mut regex_filter: Option<Regex> = None;
     let mut ngrams = 1;
     let mut filter_stopwords = false;
+    let mut min_length: Option<usize> = None;
+    let mut starts_with: Option<char> = None;
 
     // Parse optional flags
-    for arg in &args[2..] {
-        if arg.starts_with("--top=") {
-            if let Some(n) = arg.split('=').nth(1) {
-                top_n = n.parse().unwrap_or(10);
-            }
-        } else if arg.starts_with("--match-regex") {
-            if let Some(pattern) = arg.split('=').nth(1) {
-                regex_filter = Regex::new(pattern).ok();
-            }
-        } else if arg.starts_with("--ngrams") {
-            if let Some(n) = arg.split('=').nth(1) {
-                ngrams = n.parse().unwrap_or(1);
-            }
+    args.iter().skip(2).for_each(|arg| {
+        if let Some(n) = arg.strip_prefix("--top=") {
+            top_n = n.parse().unwrap_or(10);
+        } else if let Some(pattern) = arg.strip_prefix("--match-regex=") {
+            regex_filter = Regex::new(pattern).ok();
+        } else if let Some(n) = arg.strip_prefix("--ngrams=") {
+            ngrams = n.parse().unwrap_or(1);
         } else if arg == "--filter-stopwords" {
             filter_stopwords = true;
+        } else if let Some(n) = arg.strip_prefix("--min-length=") {
+            min_length = n.parse().ok();
+        } else if let Some(c) = arg.strip_prefix("--starts-with=") {
+            starts_with = c.chars().next();
         }
-    }
+    });
 
     // Read file
     let contents = fs::read_to_string(filename).expect("Could not read the file");
@@ -101,7 +99,10 @@ fn main() {
     // Apply stopword filter
     if filter_stopwords {
         let sw = stopwords();
-        tokens = tokens.into_iter().filter(|w| !sw.contains(w.as_str())).collect();
+        tokens = tokens
+            .into_iter()
+            .filter(|w| !sw.contains(w.as_str()))
+            .collect();
     }
 
     // Apply regex filter
@@ -109,10 +110,20 @@ fn main() {
         tokens = tokens.into_iter().filter(|w| re.is_match(w)).collect();
     }
 
+    // Apply min-length filter
+    if let Some(n) = min_length {
+        tokens = tokens.into_iter().filter(|w| w.len() > n).collect();
+    }
+
+    // Apply starts-with filter
+    if let Some(c) = starts_with {
+        tokens = tokens.into_iter().filter(|w| w.starts_with(c)).collect();
+    }
+
     // Generate N-grams
     let grams = generate_ngrams(&tokens, ngrams);
 
-    // Count frequencies
+    // Count frequencies (functional)
     let frequencies = count_frequencies(&grams);
 
     // Sort by frequency
@@ -123,6 +134,15 @@ fn main() {
     println!("{}", "Text Analysis Report".bold().underline().cyan());
     println!("{} {}", "Total items:".green(), grams.len());
     println!("{} {}", "Unique items:".green(), sorted.len());
+
+    if let Some((word, count)) = sorted.first() {
+        println!(
+            "{} {} ({})",
+            "Most common:".yellow().bold(),
+            word.bold(),
+            count
+        );
+    }
 
     if !sorted.is_empty() {
         println!("\n{}", format!("Top {} frequent:", top_n).yellow().bold());
