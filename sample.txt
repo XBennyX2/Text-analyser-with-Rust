@@ -1,0 +1,1 @@
+Rust is fast. Rust is memory safe. Functional Rust is cool!
