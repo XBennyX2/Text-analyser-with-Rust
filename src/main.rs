@@ -47,6 +47,19 @@ fn count_frequencies(words: &[String]) -> HashMap<String, usize> {
     freq
 }
 
+/// Display bar chart for frequencies
+fn display_bar_chart(items: &[(String, usize)], max_bar: usize) {
+    if items.is_empty() {
+        return;
+    }
+    let max_count = items[0].1 as f64;
+    for (word, count) in items {
+        let bar_len = (( *count as f64 / max_count) * max_bar as f64).round() as usize;
+        let bar = "█".repeat(bar_len);
+        println!("{:<20} {:>5} {}", word.bold(), count, bar.blue());
+    }
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
@@ -103,24 +116,18 @@ fn main() {
     let frequencies = count_frequencies(&grams);
 
     // Sort by frequency
-    let mut sorted: Vec<_> = frequencies.iter().collect();
-    sorted.sort_by(|a, b| b.1.cmp(a.1));
+    let mut sorted: Vec<_> = frequencies.into_iter().collect();
+    sorted.sort_by(|a, b| b.1.cmp(&a.1));
 
-    // Pretty output
+    // Output
     println!("{}", "Text Analysis Report".bold().underline().cyan());
     println!("{} {}", "Total items:".green(), grams.len());
-    println!("{} {}", "Unique items:".green(), frequencies.len());
+    println!("{} {}", "Unique items:".green(), sorted.len());
 
     if !sorted.is_empty() {
         println!("\n{}", format!("Top {} frequent:", top_n).yellow().bold());
-        for (i, (word, count)) in sorted.into_iter().take(top_n).enumerate() {
-            println!(
-                "{}. {} {}",
-                (i + 1).to_string().blue(),
-                word.bold(),
-                format!("({})", count).dimmed()
-            );
-        }
+        let top_items: Vec<_> = sorted.iter().take(top_n).cloned().collect();
+        display_bar_chart(&top_items, 40); // 40 chars max bar
     } else {
         println!("{}", "No words matched the filter.".red());
     }
